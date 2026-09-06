@@ -115,8 +115,14 @@ def load_feature_extractor():
 
 
 def extract_features(image: Image.Image, extractor) -> np.ndarray:
-    """Ubah gambar PIL menjadi vektor fitur 2048-dim via ResNet50."""
-    image = image.convert("RGB").resize(IMG_SIZE)
+    """Ubah gambar PIL menjadi vektor fitur 2048-dim via ResNet50.
+
+    PENTING: resize di sini HARUS pakai metode yang sama persis dengan
+    tf.keras.preprocessing.image.load_img (default interpolation='nearest'),
+    supaya fitur yang diekstrak identik dengan yang dipakai saat training.
+    PIL.Image.resize() defaultnya pakai BICUBIC, beda dari NEAREST-nya Keras.
+    """
+    image = image.convert("RGB").resize(IMG_SIZE, resample=Image.NEAREST)
     arr = img_to_array(image)
     arr = np.expand_dims(arr, axis=0)
     arr = preprocess_input(arr)
