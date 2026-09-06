@@ -15,10 +15,10 @@ dijalankan. Isi MODEL_URL di bawah dengan link file model kamu di Hugging Face
 """
 
 import pickle
-import urllib.request
 from pathlib import Path
 
 import numpy as np
+import requests
 import streamlit as st
 from PIL import Image
 
@@ -35,17 +35,49 @@ IMG_SIZE = (224, 224)  # ukuran input standar ResNet50
 
 
 def ensure_model_downloaded():
-    """Unduh file model dari Hugging Face jika belum ada di disk lokal."""
-    if MODEL_PATH.exists():
+    """Unduh file model dari Hugging Face jika belum ada di disk lokal.
+
+    Mengunduh secara streaming (chunk demi chunk) dan memvalidasi ukuran file
+    setelah selesai, supaya kalau koneksi putus di tengah jalan, file yang
+    tidak lengkap dihapus dan bisa dicoba ulang (bukan malah dipakai dan
+    menyebabkan UnpicklingError saat pickle.load).
+    """
+    MIN_EXPECTED_SIZE_BYTES = 100 * 1024 * 1024  # model asli ~186MB
+
+    if MODEL_PATH.exists() and MODEL_PATH.stat().st_size >= MIN_EXPECTED_SIZE_BYTES:
         return
+
     if not MODEL_URL or MODEL_URL.startswith("GANTI_DENGAN"):
         st.error(
             "MODEL_URL belum diisi di app.py. Upload model ke Hugging Face "
             "dulu, lalu tempel link 'resolve/main'-nya ke variabel MODEL_URL."
         )
         st.stop()
-    with st.spinner("Mengunduh model (hanya sekali di awal)..."):
-        urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+
+    with st.spinner("Mengunduh model (hanya sekali di awal, ~186MB)..."):
+        try:
+            tmp_path = MODEL_PATH.with_suffix(".tmp")
+            with requests.get(MODEL_URL, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(tmp_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8 * 1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+
+            downloaded_size = tmp_path.stat().st_size
+            if downloaded_size < MIN_EXPECTED_SIZE_BYTES:
+                tmp_path.unlink(missing_ok=True)
+                st.error(
+                    f"Unduhan model tidak lengkap (hanya {downloaded_size / 1e6:.1f}MB, "
+                    f"seharusnya ~186MB). Coba klik tombol 'Rerun' di kanan atas, "
+                    "atau reboot app dari 'Manage app'."
+                )
+                st.stop()
+
+            tmp_path.rename(MODEL_PATH)
+        except requests.RequestException as e:
+            st.error(f"Gagal mengunduh model dari Hugging Face: {e}")
+            st.stop()
 
 # Label deskripsi singkat untuk tiap kelas (opsional, mempercantik tampilan)
 LABEL_INFO = {
@@ -136,7 +168,7 @@ def main():
 
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Gambar yang diunggah", use_container_width=True)
+        st.image(image, caption="Gambar yang diunggah", use_column_width=True)
 
         with st.spinner("Memuat model ekstraksi fitur (ResNet50)..."):
             extractor = load_feature_extractor()
