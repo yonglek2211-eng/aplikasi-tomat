@@ -4,3 +4,4 @@ protobuf==4.25.3
 numpy==1.26.4
 Pillow==10.4.0
 scikit-learn==1.6.1
+requests>=2.31.0
