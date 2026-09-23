@@ -28,8 +28,8 @@ from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras.models import load_model
 
 # Ganti dengan URL "resolve/main" ke masing-masing file kamu di Hugging Face
-MODEL_URL = "https://huggingface.co/datasets/rinaldi2211/tomato-disease-model/blob/main/dense_classifier_model.keras"
-CLASS_NAMES_URL = "https://huggingface.co/datasets/rinaldi2211/tomato-disease-model/blob/main/dense_class_names.pkl"
+MODEL_URL = "https://huggingface.co/datasets/rinaldi2211/tomato-disease-model/resolve/main/dense_classifier_model.keras"
+CLASS_NAMES_URL = "https://huggingface.co/datasets/rinaldi2211/tomato-disease-model/resolve/main/dense_class_names.pkl"
 
 MODEL_PATH = Path(__file__).parent / "dense_classifier_model.keras"
 CLASS_NAMES_PATH = Path(__file__).parent / "dense_class_names.pkl"
