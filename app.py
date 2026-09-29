@@ -6,6 +6,13 @@ di atas fitur (embedding) 2048-dimensi hasil ekstraksi ResNet50
 (ImageNet, global average pooling). TIDAK menggunakan StandardScaler --
 model dilatih langsung di atas fitur mentah ResNet50.
 
+Cara pakai (lokal):
+    streamlit run app.py
+
+Untuk deploy online, model TIDAK disertakan di repo GitHub (ukurannya
+besar). App ini mengunduh model dari Hugging Face saat pertama kali
+dijalankan. Isi MODEL_URL dan CLASS_NAMES_URL di bawah dengan link
+file kamu di Hugging Face.
 """
 
 import pickle
@@ -57,7 +64,7 @@ def _download(url: str, dest: Path, min_size_bytes: int = 1024):
 
 def ensure_artifacts_downloaded():
     with st.spinner("Mengunduh model (hanya sekali di awal)..."):
-        _download(MODEL_URL, MODEL_PATH, min_size_bytes=1024 * 1024)  
+        _download(MODEL_URL, MODEL_PATH, min_size_bytes=1024 * 1024)  # model biasanya >1MB
         _download(CLASS_NAMES_URL, CLASS_NAMES_PATH, min_size_bytes=16)
 
 
@@ -74,6 +81,48 @@ def load_feature_extractor():
     return ResNet50(weights="imagenet", include_top=False, pooling="avg", input_shape=(224, 224, 3))
 
 
+def auto_crop_leaf(image: Image.Image, padding_ratio: float = 0.15) -> tuple[Image.Image, bool]:
+    """Deteksi area daun (warna hijau) secara sederhana dan crop ke bounding box-nya.
+
+    Ini membantu mengurangi pengaruh latar belakang yang kompleks (tanah, daun lain,
+    langit, dsb.) pada citra dunia nyata, dengan mengisolasi area utama daun sebelum
+    diekstrak fiturnya. Ini adalah langkah TAMBAHAN yang tidak ada saat ekstraksi
+    features.npy asli, jadi sifatnya eksperimental -- efeknya bisa membantu atau
+    tidak berpengaruh, tergantung kondisi gambar.
+
+    Return: (gambar_hasil_crop, apakah_crop_dilakukan)
+    """
+    hsv = image.convert("HSV")
+    h_arr = np.array(hsv.getchannel("H"), dtype=np.int16)
+    s_arr = np.array(hsv.getchannel("S"), dtype=np.int16)
+    v_arr = np.array(hsv.getchannel("V"), dtype=np.int16)
+
+    # Rentang hue "hijau daun" dalam skala PIL (0-255, setara ~50-170 derajat dari 360)
+    green_mask = (h_arr >= 35) & (h_arr <= 120) & (s_arr >= 40) & (v_arr >= 30)
+
+    # Kalau area hijau yang terdeteksi terlalu sedikit (<1% piksel), jangan crop --
+    # kemungkinan gambar sudah close-up/latar polos, atau daun sedang sakit parah
+    # (banyak bercak coklat) sehingga warna hijau tersisa sedikit.
+    if green_mask.sum() < 0.01 * green_mask.size:
+        return image, False
+
+    rows = np.any(green_mask, axis=1)
+    cols = np.any(green_mask, axis=0)
+    top, bottom = np.where(rows)[0][[0, -1]]
+    left, right = np.where(cols)[0][[0, -1]]
+
+    h_img, w_img = green_mask.shape
+    pad_h = int((bottom - top) * padding_ratio)
+    pad_w = int((right - left) * padding_ratio)
+    top = max(0, top - pad_h)
+    bottom = min(h_img - 1, bottom + pad_h)
+    left = max(0, left - pad_w)
+    right = min(w_img - 1, right + pad_w)
+
+    cropped = image.crop((left, top, right + 1, bottom + 1))
+    return cropped, True
+
+
 def extract_features(image: Image.Image, extractor) -> np.ndarray:
     """HARUS identik dengan preprocessing saat ekstraksi features.npy (load_img default = NEAREST)."""
     image = image.convert("RGB").resize(IMG_SIZE, resample=Image.NEAREST)
@@ -84,9 +133,9 @@ def extract_features(image: Image.Image, extractor) -> np.ndarray:
 
 
 def predict(image: Image.Image, model, class_names, extractor):
-    features = extract_features(image, extractor)  
+    features = extract_features(image, extractor)  # TIDAK di-scaling, sesuai training
 
-    proba = model.predict(features, verbose=0)[0]  
+    proba = model.predict(features, verbose=0)[0]  # softmax output, shape (num_classes,)
     pred_idx = int(np.argmax(proba))
 
     pred_label = class_names[pred_idx]
@@ -102,17 +151,39 @@ def main():
     ensure_artifacts_downloaded()
     model, class_names = load_artifacts()
 
+    st.caption("💡 Untuk hasil terbaik: foto close-up satu daun, latar belakang polos, pencahayaan cukup.")
+
+    use_auto_crop = st.checkbox(
+        "Aktifkan deteksi otomatis area daun (eksperimental)",
+        value=True,
+        help="Mencoba memotong latar belakang secara otomatis berdasarkan warna hijau daun, "
+             "untuk membantu foto dengan latar belakang kompleks (kebun, tanah, dsb).",
+    )
+
     uploaded_file = st.file_uploader("Unggah gambar daun tomat (jpg/png)", type=["jpg", "jpeg", "png"])
 
     if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        st.image(image, caption="Gambar yang diunggah", use_column_width=True)
+
+        image_to_predict = image
+        was_cropped = False
+        if use_auto_crop:
+            image_to_predict, was_cropped = auto_crop_leaf(image)
+
+        col1, col2 = st.columns(2) if was_cropped else (st.container(), None)
+        with col1:
+            st.image(image, caption="Gambar asli", use_column_width=True)
+        if was_cropped:
+            with col2:
+                st.image(image_to_predict, caption="Setelah auto-crop", use_column_width=True)
+        elif use_auto_crop:
+            st.caption("ℹ️ Area daun tidak terdeteksi jelas, prediksi memakai gambar asli (tanpa crop).")
 
         with st.spinner("Memuat model ekstraksi fitur (ResNet50)..."):
             extractor = load_feature_extractor()
 
         with st.spinner("Memproses prediksi..."):
-            pred_label, prob_dict = predict(image, model, class_names, extractor)
+            pred_label, prob_dict = predict(image_to_predict, model, class_names, extractor)
 
         confidence = prob_dict[pred_label]
         st.subheader("Hasil Prediksi")
@@ -129,3 +200,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
