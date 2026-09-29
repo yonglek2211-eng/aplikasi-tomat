@@ -6,13 +6,6 @@ di atas fitur (embedding) 2048-dimensi hasil ekstraksi ResNet50
 (ImageNet, global average pooling). TIDAK menggunakan StandardScaler --
 model dilatih langsung di atas fitur mentah ResNet50.
 
-Cara pakai (lokal):
-    streamlit run app.py
-
-Untuk deploy online, model TIDAK disertakan di repo GitHub (ukurannya
-besar). App ini mengunduh model dari Hugging Face saat pertama kali
-dijalankan. Isi MODEL_URL dan CLASS_NAMES_URL di bawah dengan link
-file kamu di Hugging Face.
 """
 
 import pickle
@@ -27,7 +20,7 @@ from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras.models import load_model
 
-# Ganti dengan URL "resolve/main" ke masing-masing file kamu di Hugging Face
+
 MODEL_URL = "https://huggingface.co/datasets/rinaldi2211/tomato-disease-model/resolve/main/dense_classifier_model.keras"
 CLASS_NAMES_URL = "https://huggingface.co/datasets/rinaldi2211/tomato-disease-model/resolve/main/dense_class_names.pkl"
 
@@ -64,7 +57,7 @@ def _download(url: str, dest: Path, min_size_bytes: int = 1024):
 
 def ensure_artifacts_downloaded():
     with st.spinner("Mengunduh model (hanya sekali di awal)..."):
-        _download(MODEL_URL, MODEL_PATH, min_size_bytes=1024 * 1024)  # model biasanya >1MB
+        _download(MODEL_URL, MODEL_PATH, min_size_bytes=1024 * 1024)  
         _download(CLASS_NAMES_URL, CLASS_NAMES_PATH, min_size_bytes=16)
 
 
@@ -91,9 +84,9 @@ def extract_features(image: Image.Image, extractor) -> np.ndarray:
 
 
 def predict(image: Image.Image, model, class_names, extractor):
-    features = extract_features(image, extractor)  # TIDAK di-scaling, sesuai training
+    features = extract_features(image, extractor)  
 
-    proba = model.predict(features, verbose=0)[0]  # softmax output, shape (num_classes,)
+    proba = model.predict(features, verbose=0)[0]  
     pred_idx = int(np.argmax(proba))
 
     pred_label = class_names[pred_idx]
